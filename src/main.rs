@@ -28,7 +28,7 @@ async fn main() {
         .with_state(pool)
         .layer(CorsLayer::permissive());
 
-    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
+    let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
     let addr = format!("0.0.0.0:{}", port);
 
     println!("🚀 Server running on {}", addr);
