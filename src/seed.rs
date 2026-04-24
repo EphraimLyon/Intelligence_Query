@@ -1,3 +1,24 @@
+use sqlx::PgPool;
+use uuid::Uuid;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct SeedProfile {
+    pub name: String,
+    pub gender: String,
+    pub gender_probability: f64,
+    pub age: i32,
+    pub age_group: String,
+    pub country_id: String,
+    pub country_name: String,
+    pub country_probability: f64,
+}
+
+#[derive(Deserialize)]
+struct SeedData {
+    pub profiles: Vec<SeedProfile>,
+}
+
 pub async fn seed_db(pool: &PgPool) {
     if let Ok(data) = std::fs::read_to_string("seed.json") {
         if let Ok(parsed) = serde_json::from_str::<SeedData>(&data) {

@@ -90,9 +90,12 @@ async fn execute_filtered_query(pool: &PgPool, filters: Filters) -> Result<serde
 
 pub async fn get_profiles(State(pool): State<PgPool>, Query(filters): Query<Filters>) -> impl IntoResponse {
     // Validate sort column
-    if let Some(ref col) = filters.sort_by {
-        if !VALID_SORT_COLUMNS.contains(&col.as_str()) {
-            return (StatusCode::BAD_REQUEST, Json(json!({"status":"error","message":"Invalid sort_by"}))).into_response();
+if let Some(ref col) = filters.sort_by {
+        if !VALID_SORT_COLUMNS.iter().any(|&s| s == col) {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"status":"error","message":"Invalid sort_by value"}))
+            ).into_response();
         }
     }
 

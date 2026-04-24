@@ -2,6 +2,7 @@ mod db;
 mod models;
 mod handlers;
 mod seed;
+mod filters;
 mod utils;
 mod services; // Ensure this is registered
 mod nlp;      // Ensure this is registered
@@ -36,7 +37,7 @@ async fn main() {
         .route("/api/profiles/query", get(handlers::natural_language_query))
         
         // Parameterized routes - FIX: Use :id instead of {id} for Axum
-        .route("/api/profiles/:id", get(handlers::get_profile).delete(handlers::delete_profile))
+     //   .route("/api/profiles/:id", get(handlers::get_profile).delete(handlers::delete_profile))
         
         // State and Middleware
         .with_state(pool)
