@@ -14,7 +14,10 @@ use tower_http::cors::CorsLayer;
 
 #[tokio::main]
 async fn main() {
-    let pool = init_db().await;
+    let database_url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set");
+
+    let pool = init_db(&database_url).await;
 
     seed::seed_db(&pool).await;
 
@@ -25,11 +28,14 @@ async fn main() {
         .with_state(pool)
         .layer(CorsLayer::permissive());
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
+    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
+    let addr = format!("0.0.0.0:{}", port);
+
+    println!("🚀 Server running on {}", addr);
+
+    let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .unwrap();
-
-    println!("🚀 Server running on port 3000");
 
     axum::serve(listener, app).await.unwrap();
 }
