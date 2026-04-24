@@ -142,6 +142,7 @@ pub async fn get_profiles(
     };
 
     let sort_order = validated_order(filters.order.as_deref());
+    //let mut bindings: Vec<serde_json::Value> = vec![];
 if filters.limit.unwrap_or(0) < 0 {
     return (
         StatusCode::BAD_REQUEST,
@@ -164,7 +165,8 @@ if filters.limit.unwrap_or(0) < 0 {
 
     // ---------------- WHERE CLAUSE ----------------
     let mut conditions: Vec<String> = vec![];
-    let mut bindings: Vec<String> = vec![];
+    // let mut bindings: Vec<String> = vec![];
+    let mut bindings: Vec<serde_json::Value> = vec![];
 
     if let Some(g) = &filters.gender {
         conditions.push(format!("LOWER(gender) = ${}", bindings.len() + 1));
@@ -178,12 +180,14 @@ if filters.limit.unwrap_or(0) < 0 {
 
     if let Some(min) = filters.min_age {
         conditions.push(format!("age >= ${}", bindings.len() + 1));
-        bindings.push(min.to_string());
+        // bindings.push(min.to_string());
+    bindings.push(json!(min));
     }
 
     if let Some(max) = filters.max_age {
         conditions.push(format!("age <= ${}", bindings.len() + 1));
-        bindings.push(max.to_string());
+       // bindings.push(max.to_string());
+       bindings.push(json!(max));
     }
 
     if let Some(min_gp) = filters.min_gender_probability {
