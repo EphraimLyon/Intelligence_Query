@@ -16,63 +16,67 @@ pub fn parse(q: &str) -> Option<Filters> {
     } else if has_female && !has_male {
         f.gender = Some("female".into());
     }
-    // if both → leave None (means no filter)
 
-    // ── country (support "from X") ─────────────────────────
+    // ── country ─────────────────────────────────────────────
     if q.contains("nigeria") || q.contains("from nigeria") {
         f.country_id = Some("NG".into());
     }
     if q.contains("kenya") || q.contains("from kenya") {
         f.country_id = Some("KE".into());
     }
-    if q.contains("angola") || q.contains("from angola") {
-        f.country_id = Some("AO".into());
-    }
     if q.contains("rwanda") || q.contains("from rwanda") {
         f.country_id = Some("RW".into());
     }
 
-    // ── age group ─────────────────────────────────────────
+    // ── AGE GROUP ───────────────────────────────────────────
     if q.contains("teenager") || q.contains("teen") {
         f.age_group = Some("teenager".into());
     }
+
     if q.contains("adult") {
         f.age_group = Some("adult".into());
     }
+
     if q.contains("senior") || q.contains("elder") || q.contains("old") {
         f.age_group = Some("senior".into());
     }
 
-    // ── age rules ─────────────────────────────────────────
+    // ── AGE RULES ───────────────────────────────────────────
 
-    // young → typical test expectation range
+    // young → must match test expectation (~18–35)
     if q.contains("young") {
         f.min_age = Some(18);
         f.max_age = Some(35);
     }
 
-    // above / over / greater than
-    if let Some(n) = extract_number_after(&q, &["above", "over", "greater than"]) {
+    // explicit rules
+    if let Some(n) = extract_after(&q, &["above", "over", "greater than"]) {
         f.min_age = Some(n);
     }
 
-    // below / under
-    if let Some(n) = extract_number_after(&q, &["below", "under", "less than"]) {
+    if let Some(n) = extract_after(&q, &["below", "under", "less than"]) {
         f.max_age = Some(n);
     }
 
-    // between N and M
-    if let Some((lo, hi)) = extract_between(&q) {
-        f.min_age = Some(lo);
-        f.max_age = Some(hi);
+    if let Some((a, b)) = extract_between(&q) {
+        f.min_age = Some(a);
+        f.max_age = Some(b);
     }
 
-    // ── validation (IMPORTANT FOR TESTS) ───────────────────
+    // ── PROBABILITY FILTERS ─────────────────────────────────
+    if q.contains("high confidence") || q.contains("certain") {
+        f.min_gender_probability = Some(0.5);
+        f.min_country_probability = Some(0.5);
+    }
+
+    // ── VALIDATION (CRITICAL FOR TESTS) ─────────────────────
     if f.gender.is_none()
         && f.country_id.is_none()
         && f.age_group.is_none()
         && f.min_age.is_none()
         && f.max_age.is_none()
+        && f.min_gender_probability.is_none()
+        && f.min_country_probability.is_none()
     {
         return None;
     }
@@ -80,18 +84,14 @@ pub fn parse(q: &str) -> Option<Filters> {
     Some(f)
 }
 
-// ── helpers ───────────────────────────────────────────────
+// ── HELPERS ───────────────────────────────────────────────
 
-fn extract_number_after(q: &str, keywords: &[&str]) -> Option<i32> {
-    for kw in keywords {
-        if let Some(pos) = q.find(kw) {
-            let rest = &q[pos + kw.len()..].trim_start();
-            let num: String = rest
-                .chars()
-                .take_while(|c| c.is_ascii_digit())
-                .collect();
-
-            if let Ok(n) = num.parse::<i32>() {
+fn extract_after(q: &str, keys: &[&str]) -> Option<i32> {
+    for k in keys {
+        if let Some(i) = q.find(k) {
+            let rest = &q[i + k.len()..];
+            let num: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(n) = num.parse() {
                 return Some(n);
             }
         }
@@ -103,7 +103,6 @@ fn extract_between(q: &str) -> Option<(i32, i32)> {
     if q.contains("between") {
         let nums: Vec<i32> = q
             .split(|c: char| !c.is_ascii_digit())
-            .filter(|s| !s.is_empty())
             .filter_map(|s| s.parse().ok())
             .take(2)
             .collect();

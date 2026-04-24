@@ -133,16 +133,36 @@ pub async fn get_profiles(
         Err(_) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(json!({ "status": "error", "message": "Invalid sort_by" }))
+                Json(json!({
+                    "status": "error",
+                    "message": "Invalid sort_by value"
+                })),
             ).into_response();
         }
     };
 
     let sort_order = validated_order(filters.order.as_deref());
-    let limit = capped_limit(filters.limit);
-    let page = filters.page.unwrap_or(1);
+if filters.limit.unwrap_or(0) < 0 {
+    return (
+        StatusCode::BAD_REQUEST,
+        Json(json!({
+            "status": "error",
+            "message": "Invalid limit"
+        }))
+    ).into_response();
+}
+
+    // ✅ FIX 1: strict limit cap enforcement
+    let limit = match filters.limit {
+        Some(l) if l > 0 => l.min(MAX_LIMIT),
+        _ => DEFAULT_LIMIT,
+    };
+
+    // ensure page is valid
+    let page = filters.page.unwrap_or(1).max(1);
     let offset = (page - 1) * limit;
 
+    // ---------------- WHERE CLAUSE ----------------
     let mut conditions: Vec<String> = vec![];
     let mut bindings: Vec<String> = vec![];
 
@@ -177,11 +197,12 @@ pub async fn get_profiles(
     }
 
     let where_clause = if conditions.is_empty() {
-        "".to_string()
+        String::new()
     } else {
         format!("WHERE {}", conditions.join(" AND "))
     };
 
+    // ---------------- COUNT QUERY ----------------
     let count_query = format!("SELECT COUNT(*) AS count FROM profiles {}", where_clause);
     let mut count_builder = sqlx::query(&count_query);
 
@@ -194,11 +215,15 @@ pub async fn get_profiles(
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "status": "error", "message": e.to_string() }))
+                Json(json!({
+                    "status": "error",
+                    "message": e.to_string()
+                })),
             ).into_response();
         }
     };
 
+    // ---------------- DATA QUERY ----------------
     let limit_pos = bindings.len() + 1;
     let offset_pos = bindings.len() + 2;
 
@@ -220,7 +245,10 @@ pub async fn get_profiles(
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "status": "error", "message": e.to_string() }))
+                Json(json!({
+                    "status": "error",
+                    "message": e.to_string()
+                })),
             ).into_response();
         }
     };
@@ -238,18 +266,22 @@ pub async fn get_profiles(
         created_at: row.get("created_at"),
     }).collect();
 
+    // ---------------- FIX 2: correct pagination envelope ----------------
     let total_pages = (total as f64 / limit as f64).ceil() as i64;
 
-    Json(json!({
-        "status": "success",
-        "data": data,
-        "pagination": {
-            "page": page,
-            "limit": limit,
-            "total": total,
-            "total_pages": total_pages
-        }
-    })).into_response()
+    (
+        StatusCode::OK,
+        Json(json!({
+            "status": "success",
+            "data": data,
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "total_pages": total_pages
+            }
+        })),
+    ).into_response()
 }
 
 // ================= NLP =================
