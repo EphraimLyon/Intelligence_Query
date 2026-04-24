@@ -22,16 +22,20 @@ async fn main() {
     seed::seed_db(&pool).await;
 
     let app = Router::new()
+        // list / create
         .route("/api/profiles", get(get_profiles).post(create_profile))
-        .route("/api/profiles/{id}", get(get_profile).delete(delete_profile))
+        // âš  static routes MUST come before parameterised ones
         .route("/api/profiles/search", get(search_profiles))
+        .route("/api/profiles/query",  get(natural_language_query))
+        // parameterised routes
+        .route("/api/profiles/{id}", get(get_profile).delete(delete_profile))
         .with_state(pool)
         .layer(CorsLayer::permissive());
 
     let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
     let addr = format!("0.0.0.0:{}", port);
 
-    println!("🚀 Server running on {}", addr);
+    println!("ðŸš€ Server running on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr)
         .await

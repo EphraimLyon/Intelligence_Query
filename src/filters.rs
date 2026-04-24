@@ -1,4 +1,10 @@
+// filters.rs – kept for backward compatibility but main filtering logic
+// now lives in handlers.rs (get_profiles / search_profiles).
+// If you still import build_query elsewhere, use this PostgreSQL-compatible version.
+
 use serde::Deserialize;
+
+const MAX_LIMIT: i64 = 100;
 
 #[derive(Debug, Deserialize, Default)]
 pub struct Filters {
@@ -19,59 +25,81 @@ pub struct Filters {
     pub limit: Option<i64>,
 }
 
-pub fn build_query(filters: &Filters) -> (String, Vec<String>) {
-    let mut query = "SELECT * FROM profiles WHERE 1=1".to_string();
+const VALID_SORT_COLUMNS: &[&str] = &[
+    "age", "name", "country_name", "gender",
+    "created_at", "gender_probability", "country_probability",
+];
+
+/// Returns `(sql_string, positional_params)` ready for PostgreSQL ($1, $2, …).
+/// Returns `Err(String)` when `sort_by` is invalid.
+pub fn build_query(filters: &Filters) -> Result<(String, Vec<String>), String> {
+    let mut conditions: Vec<String> = vec![];
     let mut params: Vec<String> = vec![];
 
+    macro_rules! push {
+        ($cond:expr, $val:expr) => {{
+            conditions.push(format!($cond, params.len() + 1));
+            params.push($val);
+        }};
+    }
+
     if let Some(g) = &filters.gender {
-        query.push_str(" AND LOWER(gender) = ?");
-        params.push(g.to_lowercase());
+        push!("LOWER(gender) = ${}", g.to_lowercase());
     }
-
     if let Some(c) = &filters.country_id {
-        query.push_str(" AND UPPER(country_id) = ?");
-        params.push(c.to_uppercase());
+        push!("UPPER(country_id) = ${}", c.to_uppercase());
     }
-
     if let Some(a) = &filters.age_group {
-        query.push_str(" AND LOWER(age_group) = ?");
-        params.push(a.to_lowercase());
+        push!("LOWER(age_group) = ${}", a.to_lowercase());
     }
-
     if let Some(min) = filters.min_age {
-        query.push_str(" AND age >= ?");
-        params.push(min.to_string());
+        push!("age >= ${}", min.to_string());
     }
-
     if let Some(max) = filters.max_age {
-        query.push_str(" AND age <= ?");
-        params.push(max.to_string());
+        push!("age <= ${}", max.to_string());
+    }
+    if let Some(min_gp) = filters.min_gender_probability {
+        push!("gender_probability >= ${}", min_gp.to_string());
+    }
+    if let Some(min_cp) = filters.min_country_probability {
+        push!("country_probability >= ${}", min_cp.to_string());
     }
 
-    if let Some(min) = filters.min_gender_probability {
-        query.push_str(" AND gender_probability >= ?");
-        params.push(min.to_string());
+    let where_clause = if conditions.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", conditions.join(" AND "))
+    };
+
+    // validate sort column
+    let sort_col = filters.sort_by.as_deref().unwrap_or("created_at");
+    if !VALID_SORT_COLUMNS.contains(&sort_col) {
+        return Err(format!(
+            "Invalid sort_by '{}'. Allowed: {}",
+            sort_col,
+            VALID_SORT_COLUMNS.join(", ")
+        ));
     }
 
-    if let Some(min) = filters.min_country_probability {
-        query.push_str(" AND country_probability >= ?");
-        params.push(min.to_string());
-    }
+    let order = match filters.order.as_deref() {
+        Some("asc") | Some("ASC") => "ASC",
+        _ => "DESC",
+    };
 
-    // sorting
-    let sort = filters.sort_by.clone().unwrap_or("created_at".into());
-    let order = filters.order.clone().unwrap_or("desc".into());
-
-    query.push_str(&format!(" ORDER BY {} {}", sort, order));
-
-    // pagination
+    let limit = filters.limit.unwrap_or(10).min(MAX_LIMIT);
     let page = filters.page.unwrap_or(1);
-    let limit = filters.limit.unwrap_or(10);
     let offset = (page - 1) * limit;
 
-    query.push_str(" LIMIT ? OFFSET ?");
+    let limit_pos = params.len() + 1;
+    let offset_pos = params.len() + 2;
+
+    let query = format!(
+        "SELECT * FROM profiles {} ORDER BY {} {} LIMIT ${} OFFSET ${}",
+        where_clause, sort_col, order, limit_pos, offset_pos
+    );
+
     params.push(limit.to_string());
     params.push(offset.to_string());
 
-    (query, params)
+    Ok((query, params))
 }
