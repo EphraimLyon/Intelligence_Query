@@ -1,157 +1,185 @@
-# Natural Language Query Parser
+# Intelligence Query API
 
-## Overview
-
-The parser takes a plain English query string and converts it into a structured `Filters` object used to query the profiles API. It performs simple keyword matching — no ML, no NLP libraries, just `contains()` checks on a lowercased input string.
+A Rust/Axum REST API for querying demographic profile data stored in PostgreSQL.
 
 ---
 
-## 1. Parsing Approach
+## Base URL
 
-### How It Works
-
-1. The input string is **lowercased** so all matching is case-insensitive.
-2. A blank `Filters` struct is created using `Filters::default()`.
-3. The lowercased string is scanned for known keywords using `.contains()`.
-4. Matching keywords set the corresponding filter fields.
-5. The populated `Filters` object is returned wrapped in `Some(...)`.
-
-> Note: The function always returns `Some(f)` — even if no keywords matched and all fields remain `None`.
-
----
-
-## 2. Supported Keywords & Filter Mappings
-
-### Gender
-
-| Keyword | Maps To |
-|---------|---------|
-| `male` (without `female`) | `gender = "male"` |
-| `female` | `gender = "female"` |
-
-**Logic:** The parser checks for `male` first, but only sets it if `female` is not also present in the string. This prevents `"female"` from accidentally matching the substring `"male"` inside it.
-
-**Example queries:**
 ```
-"show me male profiles"       → gender = male
-"list all female users"       → gender = female
-"male and female"             → gender = female  ⚠️ (see Limitations)
+https://intelligencequery-production.up.railway.app
 ```
 
 ---
 
-### Country
+## Endpoints
 
-| Keyword | Maps To |
-|---------|---------|
-| `nigeria` | `country_id = "NG"` |
-| `kenya` | `country_id = "KE"` |
-| `angola` | `country_id = "AO"` |
+### `GET /api/profiles`
 
-**Logic:** Independent `if` blocks — not `else if`. If multiple country names appear in the query, the **last matched one wins** (Angola would override Nigeria if both appear).
+List profiles with optional filtering, sorting, and pagination.
 
-**Example queries:**
+**Query parameters**
+
+| Parameter               | Type    | Description                                                     |
+|-------------------------|---------|-----------------------------------------------------------------|
+| `name`                  | string  | Case-insensitive partial match on name                          |
+| `gender`                | string  | `male` or `female` (case-insensitive)                           |
+| `country`               | string  | Filter by country name (case-insensitive exact match)           |
+| `country_id`            | string  | ISO 3166-1 alpha-2 code (e.g. `NG`, `KE`)                      |
+| `age_group`             | string  | `child`, `teenager`, `young_adult`, `adult`, `senior`           |
+| `min_age`               | integer | Minimum age (inclusive)                                         |
+| `max_age`               | integer | Maximum age (inclusive)                                         |
+| `min_gender_probability`| float   | Minimum gender prediction confidence (0.0–1.0)                  |
+| `min_country_probability`| float  | Minimum country prediction confidence (0.0–1.0)                 |
+| `sort_by`               | string  | `age`, `name`, `country_name`, `gender`, `created_at`, `gender_probability`, `country_probability` |
+| `order`                 | string  | `asc` or `desc` (default `desc`)                                |
+| `page`                  | integer | Page number (default `1`)                                       |
+| `limit`                 | integer | Results per page (default `10`, max `100`)                      |
+
+**Response envelope**
+
+```json
+{
+  "status": "success",
+  "count": 142,
+  "page": 1,
+  "limit": 10,
+  "data": [ ... ]
+}
 ```
-"profiles from nigeria"       → country_id = NG
-"users in kenya"              → country_id = KE
-"angola profiles"             → country_id = AO
-```
 
----
+**Error response (e.g. invalid `sort_by`)**
 
-### Age Group
-
-| Keyword | Maps To |
-|---------|---------|
-| `teenager` | `age_group = "teenager"` |
-| `adult` | `age_group = "adult"` |
-
-**Logic:** Independent `if` blocks. If both keywords appear, `adult` wins as it is checked last.
-
-**Example queries:**
-```
-"find a teenager"             → age_group = teenager
-"adult users only"            → age_group = adult
-```
-
----
-
-### Age Range Rules
-
-| Keyword | Maps To |
-|---------|---------|
-| `young` | `min_age = 16`, `max_age = 24` |
-| `above 30` | `min_age = 30` |
-
-**Logic:** The `young` rule sets both `min_age` and `max_age` as a range. The `above 30` rule sets only `min_age`, with no upper bound.
-
-**Example queries:**
-```
-"show young users"            → min_age = 16, max_age = 24
-"users above 30"              → min_age = 30
-"young adults above 30"       → min_age = 30, max_age = 24  ⚠️ (see Limitations)
+```json
+{
+  "status": "error",
+  "message": "Invalid sort_by value 'foo'. Must be one of: age, name, ..."
+}
 ```
 
 ---
 
-## 3. Limitations & Edge Cases
+### `POST /api/profiles`
 
-### Always Returns `Some`
+Create a new profile.
 
-The function always returns `Some(f)` even when no keywords matched and every field is `None`. Callers cannot distinguish between "no filters matched" and "a valid empty filter was requested."
+**Request body (JSON)**
 
----
-
-### No Number Extraction
-
-Only the hardcoded phrase `"above 30"` is supported. The parser cannot understand:
+```json
+{
+  "name": "Amara Osei",
+  "gender": "female",
+  "gender_probability": 0.97,
+  "age": 28,
+  "age_group": "young_adult",
+  "country_id": "GH",
+  "country_name": "Ghana",
+  "country_probability": 0.88
+}
 ```
-"above 40"     → not handled
-"older than 25"→ not handled
-"under 18"     → not handled
-"between 20 and 35" → not handled
+
+**Response**
+
+```json
+{ "status": "created", "id": "01927f..." }
 ```
-Any age phrasing other than the exact string `"above 30"` is silently ignored.
 
 ---
 
-### Last-Write Wins for Country
+### `GET /api/profiles/search`
 
-Country filters use independent `if` blocks, not `else if`. A query like `"nigeria and kenya"` would set `country_id = KE` because Kenya is checked last, silently discarding Nigeria.
+Search profiles by name, gender, country, or age group.
+
+**Query parameters**: `search`, `gender`, `country`, `age_group`, `page`, `limit`
 
 ---
 
-### Conflicting Age Rules
+### `GET /api/profiles/query`
 
-If both `young` and `above 30` appear in a query, both blocks run and partially overwrite each other:
+Natural-language profile search.
+
+**Query parameters**
+
+| Parameter | Description                              |
+|-----------|------------------------------------------|
+| `q`       | Free-text query (required)               |
+| `page`    | Page number (default `1`)                |
+| `limit`   | Results per page (default `10`, max `100`)|
+
+**Supported query patterns**
+
+| Query example                        | Parsed as                              |
+|--------------------------------------|----------------------------------------|
+| `young males`                        | gender=male, age 18–35                 |
+| `females above 30`                   | gender=female, min_age=30              |
+| `people from Nigeria`                | country_id=NG                          |
+| `adult males from Kenya`             | gender=male, age_group=adult, country_id=KE |
+| `Male and female teenagers above 17` | age_group=teenager, min_age=17         |
+
+**Response**
+
+```json
+{
+  "status": "success",
+  "query": "young males",
+  "parsed": {
+    "gender": "male",
+    "age_group": null,
+    "min_age": 18,
+    "max_age": 35,
+    "country_id": null
+  },
+  "count": 87,
+  "page": 1,
+  "limit": 10,
+  "data": [ ... ]
+}
 ```
-"young users above 30"
-→ young sets:     min_age = 16, max_age = 24
-→ above 30 sets:  min_age = 30  (overwrites 16)
-→ result:         min_age = 30, max_age = 24  ← impossible range
+
+---
+
+### `GET /api/profiles/{id}`
+
+Retrieve a single profile by UUID.
+
+---
+
+### `DELETE /api/profiles/{id}`
+
+Delete a profile by UUID.
+
+---
+
+## Profile object
+
+```json
+{
+  "id": "01927f3e-...",
+  "name": "Chisom Eze",
+  "gender": "female",
+  "gender_probability": 0.95,
+  "age": 24,
+  "age_group": "young_adult",
+  "country_id": "NG",
+  "country_name": "Nigeria",
+  "country_probability": 0.91,
+  "created_at": "2025-01-15T10:30:00Z"
+}
 ```
-This produces a filter where `min_age > max_age`, which will return zero results.
 
 ---
 
-### Limited Country Coverage
+## Validation rules
 
-Only Nigeria, Kenya, and Angola are supported. Queries mentioning any other African country or any country outside Africa are silently ignored with no `country_id` set.
-
----
-
-### No Partial Age Group Coverage
-
-Only `teenager` and `adult` are recognised. The `senior` age group (which exists in the data) has no keyword mapping. A query like `"show seniors"` or `"elderly users"` returns no age group filter.
+- `sort_by` must be one of the allowed column names; otherwise a `400` error is returned.
+- `limit` is capped at **100** regardless of what is supplied.
+- `country_id` and `gender` comparisons are case-insensitive.
 
 ---
 
-### No Negation Support
+## Stack
 
-The parser has no concept of negation. Phrases like `"not male"`, `"exclude nigeria"`, or `"non-adult"` are not handled and will either be ignored or mismatched.
-
----
-
-### No Confidence or Error Feedback
-
-There is no way to communicate back to the caller which parts of the query were understood, which were ignored, or whether the query was ambiguous. All parsing is silent.
+- **Language**: Rust (edition 2021)
+- **Framework**: Axum 0.7
+- **Database**: PostgreSQL (via sqlx)
+- **Deployment**: Railway
